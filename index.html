@@ -1,0 +1,2364 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>古早味冰果室｜體感上肢復健遊戲</title>
+  <!-- 引入圓潤繁體中文字型 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
+  <!-- MediaPipe Hands 套件 -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    :root {
+      --retro-red: #D93829;
+      --retro-cream: #FFF8E7;
+      --retro-wood: #5C3A21;
+      --retro-gold: #F5A623;
+      --retro-teal: #1B7A6E;
+      --panel-bg: rgba(32, 22, 16, 0.94);
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #1e140e;
+      font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--retro-cream);
+      touch-action: none;
+    }
+
+    /* 底層隱藏 Video 供 MediaPipe 擷取 */
+    #input-video {
+      display: none;
+    }
+
+    /* 主遊戲全螢幕畫布 (佔滿 100% 視窗) */
+    #game-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      cursor: none;
+    }
+
+    /* 頂部極簡 HUD (僅佔不到 10% 高度，不干擾視線) */
+    #top-hud {
+      position: absolute;
+      top: 12px;
+      left: 16px;
+      right: 16px;
+      height: 64px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      pointer-events: none;
+      gap: 12px;
+    }
+
+    .hud-pill {
+      background: rgba(42, 26, 17, 0.85);
+      border: 2.5px solid #E6C280;
+      border-radius: 999px;
+      padding: 8px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.45), inset 0 1px 2px rgba(255,255,255,0.25);
+      backdrop-filter: blur(8px);
+      pointer-events: auto;
+    }
+
+    .recipe-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .recipe-title {
+      font-size: 1.25rem;
+      font-weight: 900;
+      color: #FFE49E;
+      letter-spacing: 0.5px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+    }
+
+    .step-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .step-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+      border: 2px solid #E6C280;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .step-dot.done {
+      background: #4CD964;
+      border-color: #FFF;
+      transform: scale(1.18);
+      box-shadow: 0 0 10px #4CD964;
+    }
+
+    .step-dot.active {
+      background: #FFD43B;
+      transform: scale(1.25);
+      box-shadow: 0 0 12px #FFD43B;
+    }
+
+    /* 碗數進度顯示 */
+    .bowl-progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #FFF;
+    }
+
+    .bowl-icons {
+      display: flex;
+      gap: 5px;
+    }
+
+    .bowl-icon-mini {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.18);
+      border: 2px solid rgba(255,255,255,0.4);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: all 0.3s ease;
+    }
+
+    .bowl-icon-mini.completed {
+      background: linear-gradient(135deg, #FF6B6B, #FFD93D);
+      border-color: #FFF;
+      transform: scale(1.12);
+      box-shadow: 0 0 10px rgba(255, 217, 61, 0.8);
+    }
+
+    /* 中央上方簡潔操作提示條 */
+    #prompt-banner {
+      position: absolute;
+      top: 84px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9;
+      background: linear-gradient(90deg, rgba(180, 45, 30, 0.92), rgba(215, 75, 35, 0.92));
+      border: 2.5px solid #FFE29A;
+      border-radius: 999px;
+      padding: 8px 28px;
+      font-size: 1.35rem;
+      font-weight: 900;
+      color: #FFF;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+      pointer-events: none;
+      white-space: nowrap;
+      transition: all 0.25s ease;
+    }
+
+    /* 右上控制按鈕組 */
+    .hud-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+    }
+
+    .icon-btn {
+      background: rgba(42, 26, 17, 0.88);
+      border: 2.5px solid #E6C280;
+      color: #FFF8E7;
+      height: 52px;
+      padding: 0 18px;
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+      transition: transform 0.15s ease, background 0.2s ease;
+    }
+
+    .icon-btn:hover {
+      background: rgba(85, 52, 34, 0.95);
+      transform: translateY(-2px);
+    }
+
+    .icon-btn:active {
+      transform: translateY(1px);
+    }
+
+    /* 左下角小巧追蹤狀態與鏡頭切換膠囊 */
+    #tracking-pill {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      z-index: 10;
+      background: rgba(30, 20, 14, 0.82);
+      border: 2px solid rgba(230, 194, 128, 0.7);
+      border-radius: 999px;
+      padding: 6px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      backdrop-filter: blur(6px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #4CD964;
+      box-shadow: 0 0 8px #4CD964;
+      transition: background 0.2s ease;
+    }
+
+    .status-dot.warn {
+      background: #FFCC00;
+      box-shadow: 0 0 8px #FFCC00;
+    }
+
+    .status-dot.mouse {
+      background: #5AC8FA;
+      box-shadow: 0 0 8px #5AC8FA;
+    }
+
+    /* 設定面板遮罩與彈窗 */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(12, 8, 5, 0.78);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    .modal-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .settings-card {
+      background: linear-gradient(180deg, #382417 0%, #24160E 100%);
+      border: 3px solid #E6C280;
+      border-radius: 28px;
+      width: 100%;
+      max-width: 860px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.75);
+      overflow: hidden;
+    }
+
+    .settings-header {
+      background: linear-gradient(90deg, #9E2A1C, #C83E2B);
+      padding: 18px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 3px solid #E6C280;
+    }
+
+    .settings-header h2 {
+      font-size: 1.5rem;
+      font-weight: 900;
+      color: #FFF8E7;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .settings-body {
+      padding: 22px 28px;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 20px;
+    }
+
+    .setting-group {
+      background: rgba(255, 248, 231, 0.06);
+      border: 1.5px solid rgba(230, 194, 128, 0.3);
+      border-radius: 18px;
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .setting-group-title {
+      font-size: 1.1rem;
+      font-weight: 900;
+      color: #FFD479;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(230, 194, 128, 0.2);
+      padding-bottom: 8px;
+    }
+
+    .setting-desc {
+      font-size: 0.85rem;
+      color: rgba(255, 248, 231, 0.72);
+      line-height: 1.4;
+    }
+
+    .btn-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .opt-btn {
+      flex: 1 1 auto;
+      min-width: 82px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 2px solid rgba(230, 194, 128, 0.35);
+      color: #FFF8E7;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+
+    .opt-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .opt-btn.active {
+      background: linear-gradient(135deg, #F5A623, #E07A10);
+      border-color: #FFF;
+      color: #1E120A;
+      box-shadow: 0 4px 12px rgba(245, 166, 35, 0.45);
+    }
+
+    .settings-footer {
+      padding: 16px 28px;
+      background: rgba(0, 0, 0, 0.35);
+      border-top: 2px solid rgba(230, 194, 128, 0.25);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .primary-btn {
+      background: linear-gradient(135deg, #2ECC71, #1B9E53);
+      border: 2.5px solid #FFF;
+      color: #FFF;
+      padding: 12px 32px;
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 1.2rem;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(46, 204, 113, 0.45);
+      transition: transform 0.15s ease;
+    }
+
+    .primary-btn:hover {
+      transform: scale(1.03);
+    }
+
+    .secondary-btn {
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.4);
+      color: #FFF;
+      padding: 10px 22px;
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* 結算畫面專屬樣式 */
+    .summary-card {
+      background: linear-gradient(180deg, #42291A 0%, #26170E 100%);
+      border: 4px solid #FFD479;
+      border-radius: 32px;
+      width: 100%;
+      max-width: 720px;
+      padding: 32px;
+      text-align: center;
+      box-shadow: 0 25px 70px rgba(0,0,0,0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .summary-title {
+      font-size: 2.2rem;
+      font-weight: 900;
+      color: #FFE28A;
+      text-shadow: 0 3px 8px rgba(0,0,0,0.6);
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      width: 100%;
+    }
+
+    .stat-box {
+      background: rgba(255, 248, 231, 0.08);
+      border: 2px solid rgba(230, 194, 128, 0.45);
+      border-radius: 20px;
+      padding: 16px 12px;
+    }
+
+    .stat-val {
+      font-size: 2.1rem;
+      font-weight: 900;
+      color: #4CD964;
+    }
+
+    .stat-label {
+      font-size: 0.95rem;
+      color: #E6C280;
+      margin-top: 4px;
+    }
+
+    .completed-bowls-showcase {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(0,0,0,0.28);
+      padding: 14px 20px;
+      border-radius: 18px;
+      width: 100%;
+    }
+
+    .showcase-tag {
+      background: linear-gradient(135deg, rgba(217,56,41,0.85), rgba(168,38,26,0.85));
+      border: 1.5px solid #FFE29A;
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #FFF;
+    }
+
+    @media (max-width: 768px) {
+      #top-hud {
+        height: 54px;
+        top: 8px;
+        left: 8px;
+        right: 8px;
+      }
+      .hud-pill {
+        padding: 6px 12px;
+        gap: 8px;
+      }
+      .recipe-title {
+        font-size: 1rem;
+      }
+      #prompt-banner {
+        top: 68px;
+        font-size: 1.05rem;
+        padding: 6px 18px;
+      }
+      .icon-btn {
+        height: 44px;
+        padding: 0 12px;
+        font-size: 0.9rem;
+      }
+      .settings-body {
+        grid-template-columns: 1fr;
+        padding: 16px;
+      }
+      .stats-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 隱藏攝影機串流 -->
+  <video id="input-video" playsinline></video>
+
+  <!-- 全螢幕主遊戲畫布 -->
+  <canvas id="game-canvas"></canvas>
+
+  <!-- 頂部極簡狀態列 -->
+  <div id="top-hud">
+    <!-- 左：目前製作冰品與配料步驟 -->
+    <div class="hud-pill">
+      <div class="recipe-badge">
+        <span id="hud-recipe-name" class="recipe-title">紅豆牛奶冰</span>
+        <div id="hud-step-dots" class="step-dots"></div>
+      </div>
+    </div>
+
+    <!-- 中：完成碗數進度 -->
+    <div class="hud-pill">
+      <div class="bowl-progress">
+        <span id="hud-bowl-text">第 1 / 5 碗</span>
+        <div id="hud-bowl-icons" class="bowl-icons"></div>
+      </div>
+    </div>
+
+    <!-- 右：設定與全螢幕入口 -->
+    <div class="hud-actions">
+      <button id="btn-fullscreen" class="icon-btn" title="切換全螢幕">⛶ 全螢幕</button>
+      <button id="btn-settings" class="icon-btn">⚙️ 設定與難度</button>
+    </div>
+  </div>
+
+  <!-- 簡潔動作提示橫幅 -->
+  <div id="prompt-banner">請將湯匙移到【備料區】舀取紅豆</div>
+
+  <!-- 左下角追蹤狀態與攝影機開關 -->
+  <div id="tracking-pill">
+    <div id="status-dot" class="status-dot mouse"></div>
+    <span id="tracking-text">滑鼠測試模式（點擊右上設定可調整或開啟鏡頭）</span>
+  </div>
+
+  <!-- 治療師設定面板（開啟時自動暫停遊戲） -->
+  <div id="settings-modal" class="modal-overlay">
+    <div class="settings-card">
+      <div class="settings-header">
+        <h2>🍧 台灣古早味冰果室｜復健處方與遊戲設定</h2>
+        <button id="btn-close-settings" class="secondary-btn">✕ 返回遊戲</button>
+      </div>
+
+      <div class="settings-body">
+        <!-- 1. 空間動作分級 -->
+        <div class="setting-group">
+          <div class="setting-group-title">
+            <span>1. 空間動作分級（4 級）</span>
+            <span id="lbl-level-badge" style="font-size:0.85rem;color:#4CD964;">獨立於認知挑戰</span>
+          </div>
+          <div class="setting-desc">決定畫面上的互動區域位置，提高等級不會強制綁定配對或限時。</div>
+          <div class="btn-grid" id="grp-space-level">
+            <button class="opt-btn active" data-val="1">第 1 級：單向兩區</button>
+            <button class="opt-btn" data-val="2">第 2 級：中＋左右</button>
+            <button class="opt-btn" data-val="3">第 3 級：中＋左右上</button>
+            <button class="opt-btn" data-val="4">第 4 級：四向十字</button>
+          </div>
+
+          <!-- 第 1 級專屬子設定 -->
+          <div id="sub-level1-dir" style="margin-top:6px;">
+            <div class="setting-desc" style="margin-bottom:6px;">第 1 級單一訓練方向：</div>
+            <div class="btn-grid" id="grp-l1-dir">
+              <button class="opt-btn active" data-val="L2R">左 → 右</button>
+              <button class="opt-btn" data-val="R2L">右 → 左</button>
+              <button class="opt-btn" data-val="B2T">下 → 上（抗重力）</button>
+            </div>
+          </div>
+
+          <!-- 第 2~4 級順序模式 -->
+          <div id="sub-multi-seq" style="margin-top:6px; display:none;">
+            <div class="setting-desc" style="margin-bottom:6px;">多區域目標出現順序：</div>
+            <div class="btn-grid" id="grp-seq-mode">
+              <button class="opt-btn active" data-val="ALT">依序交替（規律）</button>
+              <button class="opt-btn" data-val="FIXED_L">固定左側</button>
+              <button class="opt-btn" data-val="FIXED_R">固定右側</button>
+              <button class="opt-btn" data-val="RANDOM">隨機方位</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 停留時間與往返要求 -->
+        <div class="setting-group">
+          <div class="setting-group-title">
+            <span>2. 目標區停留秒數與往返</span>
+          </div>
+          <div class="setting-desc">手進入冰碗區域後需維持穩定多久才完成加料（0 秒＝碰觸即發）。</div>
+          <div class="btn-grid" id="grp-dwell-time">
+            <button class="opt-btn" data-val="0">0 秒（碰觸即發）</button>
+            <button class="opt-btn active" data-val="0.8">0.8 秒（輕度停留）</button>
+            <button class="opt-btn" data-val="1.5">1.5 秒（標準穩定）</button>
+            <button class="opt-btn" data-val="2.5">2.5 秒（耐力維持）</button>
+          </div>
+          <div class="setting-desc" style="margin-top:6px;">是否必須返回起點舀料：</div>
+          <div class="btn-grid" id="grp-require-return">
+            <button class="opt-btn active" data-val="true">開啟（回備料區舀下一匙）</button>
+            <button class="opt-btn" data-val="false">關閉（離開目標區即自動補料）</button>
+          </div>
+        </div>
+
+        <!-- 3. 獨立認知與限時反應挑戰 -->
+        <div class="setting-group">
+          <div class="setting-group-title">
+            <span>3. 獨立認知配對＆限時反應</span>
+          </div>
+          <div class="setting-desc">可單獨開關「看配料選碗」或「急單計時獎勵」，無壓力模式不限時。</div>
+          <div class="btn-grid" id="grp-color-match">
+            <button class="opt-btn active" data-val="false">基礎引導（自動高亮目標碗）</button>
+            <button class="opt-btn" data-val="true">口味配對（依湯匙食材顏色選碗）</button>
+          </div>
+          <div class="setting-desc" style="margin-top:6px;">夜市急單時間挑戰（超時不失敗，時間內雙倍獎勵）：</div>
+          <div class="btn-grid" id="grp-timed-mode">
+            <button class="opt-btn active" data-val="0">無壓力（不限時・隨時可休息）</button>
+            <button class="opt-btn" data-val="8">寬鬆急單（8 秒黃金獎勵）</button>
+            <button class="opt-btn" data-val="5">快手急單（5 秒黃金獎勵）</button>
+          </div>
+        </div>
+
+        <!-- 4. 區域大小、距離與目標碗數 -->
+        <div class="setting-group">
+          <div class="setting-group-title">
+            <span>4. 判定區域大小、距離＆碗數</span>
+          </div>
+          <div class="setting-desc">依個案關節活動度（ROM）調整區域半徑與距離：</div>
+          <div class="btn-grid" id="grp-zone-size">
+            <button class="opt-btn active" data-val="1.22">超大區域（高容錯）</button>
+            <button class="opt-btn" data-val="1.0">標準區域</button>
+            <button class="opt-btn" data-val="0.82">精緻區域（進階控制）</button>
+          </div>
+          <div class="btn-grid" id="grp-move-dist" style="margin-top:4px;">
+            <button class="opt-btn" data-val="0.72">短距離（省力核心區）</button>
+            <button class="opt-btn active" data-val="1.0">標準距離</button>
+            <button class="opt-btn" data-val="1.22">大範圍伸展</button>
+          </div>
+          <div class="setting-desc" style="margin-top:4px;">每回合完成剉冰碗數（每碗 3 道配料）：</div>
+          <div class="btn-grid" id="grp-target-bowls">
+            <button class="opt-btn" data-val="3">3 碗（9 次動作）</button>
+            <button class="opt-btn active" data-val="5">5 碗（15 次動作）</button>
+            <button class="opt-btn" data-val="8">8 碗（24 次動作）</button>
+            <button class="opt-btn" data-val="12">12 碗（耐力挑戰）</button>
+          </div>
+        </div>
+
+        <!-- 5. 攝影機、追蹤手別與實景 AR 背景 -->
+        <div class="setting-group" style="grid-column: 1 / -1;">
+          <div class="setting-group-title">
+            <span>5. 攝影機追蹤、手別過濾＆實景 AR 背景</span>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+            <div>
+              <div class="setting-desc" style="margin-bottom:6px;">指定追蹤手別：</div>
+              <div class="btn-grid" id="grp-hand-pref">
+                <button class="opt-btn active" data-val="ANY">自動（任一手）</button>
+                <button class="opt-btn" data-val="Left">僅左手</button>
+                <button class="opt-btn" data-val="Right">僅右手</button>
+              </div>
+            </div>
+            <div>
+              <div class="setting-desc" style="margin-bottom:6px;">實景 AR 背景透明度：</div>
+              <div class="btn-grid" id="grp-ar-alpha">
+                <button class="opt-btn active" data-val="0.28">清晰實景 AR</button>
+                <button class="opt-btn" data-val="0.65">柔焦護眼遮罩</button>
+                <button class="opt-btn" data-val="0.95">純冰果室背景</button>
+              </div>
+            </div>
+            <div>
+              <div class="setting-desc" style="margin-bottom:6px;">音效與鏡像設定：</div>
+              <div class="btn-grid">
+                <button id="btn-toggle-sound" class="opt-btn active">🔊 音效：開啟</button>
+                <button id="btn-toggle-mirror" class="opt-btn active">🪞 鏡像：開啟</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-footer">
+        <button id="btn-restart-session" class="secondary-btn">🔄 重新抽籤換新菜單並重來</button>
+        <button id="btn-apply-settings" class="primary-btn">✓ 套用設定並繼續做冰</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 整組完成結算彈窗 -->
+  <div id="summary-modal" class="modal-overlay">
+    <div class="summary-card">
+      <div style="font-size:3.2rem;">🍧✨🏆</div>
+      <div class="summary-title">今日營業大成功！</div>
+      <div style="font-size:1.15rem; color:#FFE4B5;">客人吃得笑呵呵，您的手部動作控制非常棒！</div>
+
+      <div class="stats-row">
+        <div class="stat-box">
+          <div id="sum-bowls" class="stat-val">5 碗</div>
+          <div class="stat-label">完成招牌剉冰</div>
+        </div>
+        <div class="stat-box">
+          <div id="sum-actions" class="stat-val">15 次</div>
+          <div class="stat-label">成功上肢伸展</div>
+        </div>
+        <div class="stat-box">
+          <div id="sum-time" class="stat-val">01:24</div>
+          <div class="stat-label">總練習時間</div>
+        </div>
+      </div>
+
+      <div style="width:100%; text-align:left; font-size:0.95rem; color:#E6C280; font-weight:700;">本次完成的古早味冰品：</div>
+      <div id="sum-showcase" class="completed-bowls-showcase"></div>
+
+      <div style="display:flex; gap:16px; margin-top:8px;">
+        <button id="btn-sum-settings" class="secondary-btn">⚙️ 調整難度設定</button>
+        <button id="btn-sum-again" class="primary-btn">🍧 再做一輪新口味剉冰！</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /********************************************************************
+     * 一、18 種精細台灣古早味配料庫 & 15 款經典剉冰完整配方資料庫
+     * 每種配料皆定義專屬立體渲染器類型 (type)、主色、高光色、陰影色與動態物理表現
+     ********************************************************************/
+    const INGREDIENTS = {
+      red_bean: {
+        id: 'red_bean', name: '蜜紅豆', color: '#7A1C24', highlight: '#C85A64', shadow: '#420B10',
+        badgeColor: '#B82937', type: 'beans', soundPitch: 440
+      },
+      mung_bean: {
+        id: 'mung_bean', name: '綿密綠豆', color: '#7E8F35', highlight: '#B8C96A', shadow: '#47521A',
+        badgeColor: '#6D8C24', type: 'beans', soundPitch: 466
+      },
+      mango: {
+        id: 'mango', name: '愛文芒果塊', color: '#FFA800', highlight: '#FFE066', shadow: '#C47300',
+        badgeColor: '#F59E0B', type: 'chunks', soundPitch: 523
+      },
+      taro_ball: {
+        id: 'taro_ball', name: '九份Q芋圓', color: '#9B7EDE', highlight: '#D0BFFF', shadow: '#5E439C',
+        badgeColor: '#8B5CF6', type: 'balls', secondaryColor: '#F59E0B', soundPitch: 493
+      },
+      boba: {
+        id: 'boba', name: '黑糖波霸粉圓', color: '#2B1810', highlight: '#8C624C', shadow: '#0F0704',
+        badgeColor: '#4A2C1D', type: 'boba', soundPitch: 392
+      },
+      grass_jelly: {
+        id: 'grass_jelly', name: '關西嫩仙草', color: '#231F20', highlight: '#6E6568', shadow: '#090808',
+        badgeColor: '#374151', type: 'jelly_cubes', soundPitch: 415
+      },
+      fengkuei: {
+        id: 'fengkuei', name: '古早味黃粉粿', color: '#FFD60A', highlight: '#FFF3B0', shadow: '#CCA000',
+        badgeColor: '#EAB308', type: 'jelly_cubes', soundPitch: 554
+      },
+      aiyu: {
+        id: 'aiyu', name: '阿里山野生愛玉', color: '#F59E0B', highlight: '#FDE68A', shadow: '#B45309',
+        badgeColor: '#D97706', type: 'jelly_cubes', soundPitch: 587
+      },
+      peanut: {
+        id: 'peanut', name: '北港軟花生', color: '#D4A373', highlight: '#FAEDCD', shadow: '#8C5E35',
+        badgeColor: '#B07D4F', type: 'beans', soundPitch: 440
+      },
+      strawberry: {
+        id: 'strawberry', name: '大湖鮮草莓', color: '#E63946', highlight: '#FF8FA3', shadow: '#9E1420',
+        badgeColor: '#E11D48', type: 'strawberry', soundPitch: 659
+      },
+      pineapple: {
+        id: 'pineapple', name: '金鑽蜜鳳梨', color: '#FACC15', highlight: '#FEF08A', shadow: '#CA8A04',
+        badgeColor: '#EAB308', type: 'chunks', soundPitch: 587
+      },
+      tangyuan: {
+        id: 'tangyuan', name: '紅白小湯圓', color: '#FF758F', highlight: '#FFD6E0', shadow: '#C9184A',
+        badgeColor: '#EC4899', type: 'balls', secondaryColor: '#FFF8F0', soundPitch: 523
+      },
+      condensed_milk: {
+        id: 'condensed_milk', name: '香濃飛燕煉乳', color: '#FFFDF7', highlight: '#FFFFFF', shadow: '#E2D5B5',
+        badgeColor: '#F3E5AB', type: 'syrup', soundPitch: 698
+      },
+      brown_sugar: {
+        id: 'brown_sugar', name: '手炒黑糖蜜', color: '#5C2C16', highlight: '#9C5A3C', shadow: '#2E1307',
+        badgeColor: '#78350F', type: 'syrup', soundPitch: 622
+      },
+      strawberry_jam: {
+        id: 'strawberry_jam', name: '酸甜草莓果醬', color: '#D90429', highlight: '#FF758F', shadow: '#8D0801',
+        badgeColor: '#BE123C', type: 'syrup', soundPitch: 740
+      },
+      matcha_syrup: {
+        id: 'matcha_syrup', name: '宇治濃厚抹茶蜜', color: '#386641', highlight: '#6A994E', shadow: '#1B3B22',
+        badgeColor: '#2E7D32', type: 'syrup', soundPitch: 659
+      },
+      passion_sauce: {
+        id: 'passion_sauce', name: '埔里百香果醬', color: '#F77F00', highlight: '#FCBF49', shadow: '#B55300',
+        badgeColor: '#EA580C', type: 'syrup', hasSeeds: true, soundPitch: 784
+      },
+      miancha_powder: {
+        id: 'miancha_powder', name: '鹿港古早味麵茶粉', color: '#C68B59', highlight: '#E6CCA9', shadow: '#8A5A36',
+        badgeColor: '#A16207', type: 'powder', soundPitch: 523
+      }
+    };
+
+    // 15 款各具特色的台灣冰果室招牌冰品
+    const RECIPES = [
+      { id: 'r1', name: '招牌紅豆牛奶冰', steps: ['red_bean', 'tangyuan', 'condensed_milk'], cherryColor: '#E63946', umbrellaColor: '#FF595E' },
+      { id: 'r2', name: '愛文芒果牛奶冰', steps: ['mango', 'aiyu', 'condensed_milk'], cherryColor: '#FF9F1C', umbrellaColor: '#FFCA3A' },
+      { id: 'r3', name: '九份芋圓綜合冰', steps: ['taro_ball', 'red_bean', 'brown_sugar'], cherryColor: '#9B5DE5', umbrellaColor: '#8AC926' },
+      { id: 'r4', name: '古早味滿料八寶冰', steps: ['mung_bean', 'peanut', 'brown_sugar'], cherryColor: '#E63946', umbrellaColor: '#1982C4' },
+      { id: 'r5', name: '黑糖黃粉粿刨冰', steps: ['fengkuei', 'boba', 'brown_sugar'], cherryColor: '#F15BB5', umbrellaColor: '#FF924C' },
+      { id: 'r6', name: '關西嫩仙草奶凍冰', steps: ['grass_jelly', 'taro_ball', 'condensed_milk'], cherryColor: '#E63946', umbrellaColor: '#6A4C93' },
+      { id: 'r7', name: '大湖草莓煉乳冰', steps: ['strawberry', 'strawberry_jam', 'condensed_milk'], cherryColor: '#D90429', umbrellaColor: '#FF758F' },
+      { id: 'r8', name: '北港好事花生牛奶冰', steps: ['peanut', 'tangyuan', 'condensed_milk'], cherryColor: '#E63946', umbrellaColor: '#F4A261' },
+      { id: 'r9', name: '阿里山鳳梨愛玉冰', steps: ['pineapple', 'aiyu', 'passion_sauce'], cherryColor: '#FF595E', umbrellaColor: '#2EC4B6' },
+      { id: 'r10', name: '黑糖珍珠奶茶雪花冰', steps: ['boba', 'fengkuei', 'condensed_milk'], cherryColor: '#E63946', umbrellaColor: '#E07A5F' },
+      { id: 'r11', name: '宇治金時紅豆抹茶冰', steps: ['red_bean', 'tangyuan', 'matcha_syrup'], cherryColor: '#E63946', umbrellaColor: '#52B788' },
+      { id: 'r12', name: '鹿港麵茶紅白湯圓冰', steps: ['tangyuan', 'miancha_powder', 'brown_sugar'], cherryColor: '#E63946', umbrellaColor: '#E9C46A' },
+      { id: 'r13', name: '百香果雙響炮刨冰', steps: ['boba', 'aiyu', 'passion_sauce'], cherryColor: '#E63946', umbrellaColor: '#FF9F1C' },
+      { id: 'r14', name: '古早味綠豆粉粿牛奶冰', steps: ['mung_bean', 'fengkuei', 'condensed_milk'], cherryColor: '#E63946', umbrellaColor: '#8AC926' },
+      { id: 'r15', name: '寶島四季水果總匯冰', steps: ['mango', 'strawberry', 'condensed_milk'], cherryColor: '#D90429', umbrellaColor: '#3A86FF' }
+    ];
+
+    /********************************************************************
+     * 二、Web Audio API 懷舊冰果室合成音效引擎（零外部音檔依賴）
+     ********************************************************************/
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.enabled = true;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) this.ctx = new AudioCtx();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+      playScoop() {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(360, now);
+        osc.frequency.exponentialRampToValueAtTime(680, now + 0.14);
+        gain.gain.setValueAtTime(0.22, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.16);
+      }
+      playDwellTick(progress) {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(420 + progress * 420, now);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.07);
+      }
+      playStepSuccess(pitch = 523) {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        const notes = [pitch, pitch * 1.25, pitch * 1.5];
+        notes.forEach((freq, idx) => {
+          const now = this.ctx.currentTime + idx * 0.065;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.24, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.28);
+        });
+      }
+      playBowlComplete() {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        const chord = [523.25, 659.25, 783.99, 1046.5];
+        chord.forEach((freq, idx) => {
+          const now = this.ctx.currentTime + idx * 0.09;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.28, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.55);
+        });
+      }
+      playGentleHint() {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(320, now);
+        osc.frequency.linearRampToValueAtTime(250, now + 0.22);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.24);
+      }
+    }
+
+    const sound = new SoundEngine();
+
+    /********************************************************************
+     * 三、全域狀態與治療師設定參數（方向分級與認知/時間挑戰完全獨立）
+     ********************************************************************/
+    const config = {
+      spaceLevel: 1,           // 1:兩區單向, 2:中+左右, 3:中+左右上, 4:中+上下左右
+      level1Dir: 'L2R',        // 'L2R' (左→右), 'R2L' (右→左), 'B2T' (下→上)
+      seqMode: 'ALT',          // 'ALT'(交替), 'FIXED_L', 'FIXED_R', 'RANDOM'
+      dwellSeconds: 0.8,       // 停留秒數 (0, 0.8, 1.5, 2.5)
+      requireReturn: true,     // 是否必須回起點舀料
+      colorMatchMode: false,   // 是否開啟「看配料顏色選碗」認知挑戰
+      timedSeconds: 0,         // 0:無壓力不限時, 8:8秒急單, 5:5秒急單
+      zoneSizeScale: 1.22,     // 判定區大小倍率
+      moveDistScale: 1.0,      // 移動距離倍率
+      targetBowls: 5,          // 每輪完成幾碗冰
+      handPref: 'ANY',         // 'ANY', 'Left', 'Right'
+      arBgAlpha: 0.28,         // 實景遮罩濃度 (0.28=清晰實景, 0.65=柔焦, 0.95=純背景)
+      mirrorCam: true
+    };
+
+    const state = {
+      paused: false,
+      inSummary: false,
+      menuQueue: [],           // 本局抽取的冰品菜單
+      currentBowlIndex: 0,     // 目前第幾碗 (0-based)
+      currentStepIndex: 0,     // 目前第幾道配料 (0~2)
+      completedBowlsList: [],  // 已完成的冰品名稱紀錄
+      totalActionsDone: 0,
+      sessionStartTime: performance.now(),
+
+      // 動作狀態機: 'NEED_SCOOP' (需回起點舀料) | 'CARRYING' (已舀料，準備移往目標冰碗) | 'BOWL_CELEBRATE' (單碗完成動畫中)
+      phase: 'NEED_SCOOP',
+      carryingIngredient: null,
+      activeTargetId: 'right', // 目前指定的目標冰碗區域 ID
+      altCounter: 0,
+
+      // 停留與保護機制
+      dwellElapsed: 0,
+      lastDwellTickSound: 0,
+      lockedZoneId: null,      // 防止停留在同一區域重複得分
+      stepTimerElapsed: 0,     // 急單計時器
+      comboCount: 0,
+      celebrateTimer: 0,
+
+      // 視覺與粒子資料
+      bowlToppings: {},        // 每個目標冰碗目前已堆疊的配料層 { zoneId: [ {ingId, items: [...], animProgress: 0~1} ] }
+      fallingDrops: [],        // 從湯匙落入冰碗的動態食材粒子
+      burstParticles: [],      // 成功光環、彩帶與金幣粒子
+      floatingTexts: [],       // 浮動讚美文字
+      spoonTrail: [],          // 湯匙移動流體軌跡
+
+      // 手部與滑鼠游標座標 (Normalized 0~1)
+      cursorX: 0.5,
+      cursorY: 0.5,
+      targetCursorX: 0.5,
+      targetCursorY: 0.5,
+      lastHandSeenTime: 0,
+      usingCamera: false,
+      detectedHandLabel: ''
+    };
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const videoElem = document.getElementById('input-video');
+
+    // 預先生成挫冰晶體紋理點，讓冰山有晶瑩剔透的立體顆粒感
+    const ICE_CRYSTAL_OFFSETS = Array.from({ length: 55 }, () => ({
+      rx: (Math.random() - 0.5) * 1.5,
+      ry: -Math.random() * 0.85,
+      size: 4 + Math.random() * 7,
+      shade: Math.random()
+    }));
+
+    /********************************************************************
+     * 四、空間區域配置引擎（自動適應手機、平板、電腦螢幕比例）
+     ********************************************************************/
+    function getZonesLayout(w, h) {
+      const minDim = Math.min(w, h);
+      const baseRadius = Math.max(58, Math.min(115, minDim * 0.125)) * config.zoneSizeScale;
+      const cx = w * 0.5;
+      const cy = h * 0.54; // 略微往下避開頂部 HUD
+      const distX = Math.min(w * 0.34, Math.max(150, w * 0.29 * config.moveDistScale));
+      const distY = Math.min(h * 0.29, Math.max(125, h * 0.25 * config.moveDistScale));
+
+      const zones = [];
+
+      if (config.spaceLevel === 1) {
+        // 第 1 級：單向兩區（左→右、右→左、下→上）
+        if (config.level1Dir === 'L2R') {
+          zones.push({ id: 'source', role: 'source', label: '備料區', x: cx - distX, y: cy, r: baseRadius });
+          zones.push({ id: 'right', role: 'target', label: '古早味冰碗', x: cx + distX, y: cy, r: baseRadius * 1.08, themeColor: '#FF6B6B' });
+        } else if (config.level1Dir === 'R2L') {
+          zones.push({ id: 'source', role: 'source', label: '備料區', x: cx + distX, y: cy, r: baseRadius });
+          zones.push({ id: 'left', role: 'target', label: '古早味冰碗', x: cx - distX, y: cy, r: baseRadius * 1.08, themeColor: '#FF6B6B' });
+        } else if (config.level1Dir === 'B2T') {
+          zones.push({ id: 'source', role: 'source', label: '備料區', x: cx, y: Math.min(h * 0.80, cy + distY), r: baseRadius });
+          zones.push({ id: 'top', role: 'target', label: '古早味冰碗', x: cx, y: Math.max(h * 0.26, cy - distY), r: baseRadius * 1.08, themeColor: '#FFD166' });
+        }
+      } else {
+        // 第 2、3、4 級：中央為起點備料轉盤
+        const rScale = config.spaceLevel === 4 ? 0.88 : 0.95;
+        const r = baseRadius * rScale;
+        zones.push({ id: 'source', role: 'source', label: '中央備料區', x: cx, y: cy, r: r * 0.96 });
+        zones.push({ id: 'left', role: 'target', label: '左冰碗', x: cx - distX, y: cy, r: r * 1.04, themeColor: '#FF6B6B' });
+        zones.push({ id: 'right', role: 'target', label: '右冰碗', x: cx + distX, y: cy, r: r * 1.04, themeColor: '#FFB703' });
+
+        if (config.spaceLevel >= 3) {
+          zones.push({ id: 'top', role: 'target', label: '上方冰碗', x: cx, y: Math.max(h * 0.24, cy - distY), r: r * 1.02, themeColor: '#4ECDC4' });
+        }
+        if (config.spaceLevel >= 4) {
+          zones.push({ id: 'bottom', role: 'target', label: '下方冰碗', x: cx, y: Math.min(h * 0.81, cy + distY), r: r * 1.02, themeColor: '#A78BFA' });
+        }
+      }
+      return zones;
+    }
+
+    /********************************************************************
+     * 五、遊戲流程控制、抽籤菜單與配料粒子生成
+     ********************************************************************/
+    function shuffleArray(arr) {
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function initSession() {
+      state.inSummary = false;
+      document.getElementById('summary-modal').classList.remove('open');
+
+      // 從 15 款冰品中抽取不重複菜單
+      let pool = shuffleArray(RECIPES);
+      while (pool.length < config.targetBowls) {
+        pool = pool.concat(shuffleArray(RECIPES));
+      }
+      state.menuQueue = pool.slice(0, config.targetBowls);
+      state.currentBowlIndex = 0;
+      state.currentStepIndex = 0;
+      state.completedBowlsList = [];
+      state.totalActionsDone = 0;
+      state.comboCount = 0;
+      state.sessionStartTime = performance.now();
+      state.bowlToppings = {};
+      state.fallingDrops = [];
+      state.burstParticles = [];
+      state.floatingTexts = [];
+
+      setupNextStep(true);
+      updateHUD();
+    }
+
+    function getCurrentRecipe() {
+      return state.menuQueue[state.currentBowlIndex] || RECIPES[0];
+    }
+
+    function getCurrentIngredient() {
+      const recipe = getCurrentRecipe();
+      const ingId = recipe.steps[state.currentStepIndex] || recipe.steps[0];
+      return INGREDIENTS[ingId];
+    }
+
+    function chooseTargetZoneId() {
+      if (config.spaceLevel === 1) {
+        if (config.level1Dir === 'L2R') return 'right';
+        if (config.level1Dir === 'R2L') return 'left';
+        return 'top';
+      }
+      const candidates = ['left', 'right'];
+      if (config.spaceLevel >= 3) candidates.push('top');
+      if (config.spaceLevel >= 4) candidates.push('bottom');
+
+      if (config.seqMode === 'FIXED_L') return 'left';
+      if (config.seqMode === 'FIXED_R') return 'right';
+      if (config.seqMode === 'RANDOM') {
+        return candidates[Math.floor(Math.random() * candidates.length)];
+      }
+      // 預設依序交替 (ALT)
+      const pick = candidates[state.altCounter % candidates.length];
+      state.altCounter++;
+      return pick;
+    }
+
+    function setupNextStep(resetBowlToppings = false) {
+      if (resetBowlToppings) {
+        state.bowlToppings = { left: [], right: [], top: [], bottom: [] };
+      }
+      const ing = getCurrentIngredient();
+      state.activeTargetId = chooseTargetZoneId();
+      state.dwellElapsed = 0;
+      state.stepTimerElapsed = 0;
+
+      if (config.requireReturn) {
+        state.phase = 'NEED_SCOOP';
+        state.carryingIngredient = null;
+      } else {
+        // 若治療師設定不需回起點，直接自動補滿湯匙
+        state.phase = 'CARRYING';
+        state.carryingIngredient = ing;
+      }
+      updatePromptBanner();
+      updateHUD();
+    }
+
+    function updateHUD() {
+      const recipe = getCurrentRecipe();
+      document.getElementById('hud-recipe-name').textContent = recipe.name;
+
+      // 更新 3 個配料步驟圓點
+      const dotsContainer = document.getElementById('hud-step-dots');
+      dotsContainer.innerHTML = '';
+      recipe.steps.forEach((ingId, idx) => {
+        const dot = document.createElement('div');
+        dot.className = 'step-dot' + (idx < state.currentStepIndex ? ' done' : (idx === state.currentStepIndex ? ' active' : ''));
+        dot.title = INGREDIENTS[ingId].name;
+        dotsContainer.appendChild(dot);
+      });
+
+      // 更新碗數進度
+      document.getElementById('hud-bowl-text').textContent = `第 ${Math.min(state.currentBowlIndex + 1, config.targetBowls)} / ${config.targetBowls} 碗`;
+      const bowlsContainer = document.getElementById('hud-bowl-icons');
+      bowlsContainer.innerHTML = '';
+      for (let i = 0; i < config.targetBowls; i++) {
+        const icon = document.createElement('div');
+        icon.className = 'bowl-icon-mini' + (i < state.currentBowlIndex ? ' completed' : '');
+        icon.textContent = i < state.currentBowlIndex ? '🍧' : (i + 1);
+        bowlsContainer.appendChild(icon);
+      }
+    }
+
+    function updatePromptBanner() {
+      const banner = document.getElementById('prompt-banner');
+      const ing = getCurrentIngredient();
+      const dirNameMap = { left: '左側冰碗', right: '右側冰碗', top: '上方冰碗', bottom: '下方冰碗' };
+      const targetName = dirNameMap[state.activeTargetId] || '剉冰碗';
+
+      if (state.phase === 'BOWL_CELEBRATE') {
+        banner.textContent = `🎉 太棒了！【${getCurrentRecipe().name}】製作完成！`;
+        banner.style.background = 'linear-gradient(90deg, #1B9E53, #2ECC71)';
+      } else if (state.phase === 'NEED_SCOOP') {
+        banner.textContent = `🥄 請將手移到【備料區】舀取「${ing.name}」`;
+        banner.style.background = 'linear-gradient(90deg, rgba(180, 45, 30, 0.92), rgba(215, 75, 35, 0.92))';
+      } else if (state.phase === 'CARRYING') {
+        if (config.colorMatchMode && config.spaceLevel >= 2) {
+          banner.textContent = `👀 看湯匙顏色！請將「${ing.name}」送往同色招牌的【${targetName}】`;
+        } else {
+          banner.textContent = `🍧 請將「${ing.name}」移到發光的【${targetName}】加入配料`;
+        }
+        banner.style.background = 'linear-gradient(90deg, #D97706, #F59E0B)';
+      }
+    }
+
+    // 在冰碗上生成立體食材堆疊資料與飛落動畫粒子
+    function addToppingToBowl(zone, ing) {
+      if (!state.bowlToppings[zone.id]) state.bowlToppings[zone.id] = [];
+
+      // 產生從湯匙飛落至冰山頂端的動態食材粒子
+      const dropCount = ing.type === 'syrup' ? 14 : 16;
+      for (let i = 0; i < dropCount; i++) {
+        const angle = (Math.random() - 0.5) * Math.PI * 0.9;
+        const spread = (Math.random() - 0.5) * zone.r * 0.95;
+        state.fallingDrops.push({
+          ing,
+          x: zone.x + (Math.random() - 0.5) * 40,
+          y: zone.y - zone.r * 0.85 - Math.random() * 35,
+          targetX: zone.x + spread,
+          targetY: zone.y - zone.r * 0.12 - Math.abs(spread) * 0.35 + (Math.random() - 0.5) * 14,
+          progress: 0,
+          speed: 2.4 + Math.random() * 1.4,
+          size: ing.type === 'chunks' || ing.type === 'jelly_cubes' || ing.type === 'strawberry' ? 14 + Math.random() * 5 : 9 + Math.random() * 4,
+          rot: Math.random() * Math.PI * 2
+        });
+      }
+
+      // 產生永久保留在冰山上的精緻食材層
+      const layerItems = [];
+      const count = ing.type === 'syrup' ? 7 : (ing.type === 'powder' ? 28 : 18);
+      for (let i = 0; i < count; i++) {
+        const rx = (Math.random() - 0.5) * 1.25;
+        // 沿著刨冰山圓頂曲線分布
+        const domeY = -0.15 - (1 - rx * rx * 0.55) * (0.18 + Math.random() * 0.42);
+        layerItems.push({
+          rx,
+          ry: domeY,
+          size: ing.type === 'beans' || ing.type === 'boba' ? 0.085 + Math.random() * 0.025 : 0.13 + Math.random() * 0.04,
+          rot: (Math.random() - 0.5) * 0.9,
+          variant: i % 2
+        });
+      }
+
+      state.bowlToppings[zone.id].push({
+        ing,
+        items: layerItems,
+        animProgress: 0
+      });
+    }
+
+    function spawnSuccessParticles(x, y, color, count = 28) {
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.3;
+        const speed = 120 + Math.random() * 240;
+        state.burstParticles.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 60,
+          color: i % 3 === 0 ? '#FFF8E7' : (i % 2 === 0 ? '#FFD166' : color),
+          size: 5 + Math.random() * 7,
+          alpha: 1,
+          life: 0.7 + Math.random() * 0.4
+        });
+      }
+    }
+
+    function spawnFloatingText(x, y, text, color = '#FFE28A', scale = 1) {
+      state.floatingTexts.push({
+        x, y, text, color, scale,
+        alpha: 1,
+        vy: -65
+      });
+    }
+
+    /********************************************************************
+     * 六、核心互動更新迴圈（含斷線保護、遲滯防抖動、防重複計分）
+     ********************************************************************/
+    function updateGameLogic(dt, w, h) {
+      if (state.paused || state.inSummary) return;
+
+      // 平滑化游標移動 (Lerp)，消除鏡頭微幅雜訊並提升手感
+      const smoothFactor = Math.min(1, dt * 16);
+      state.cursorX += (state.targetCursorX - state.cursorX) * smoothFactor;
+      state.cursorY += (state.targetCursorY - state.cursorY) * smoothFactor;
+
+      const px = state.cursorX * w;
+      const py = state.cursorY * h;
+
+      // 紀錄湯匙流體軌跡
+      state.spoonTrail.push({ x: px, y: py, alpha: 1 });
+      if (state.spoonTrail.length > 16) state.spoonTrail.shift();
+      state.spoonTrail.forEach(pt => { pt.alpha -= dt * 3.2; });
+      state.spoonTrail = state.spoonTrail.filter(pt => pt.alpha > 0);
+
+      // 更新配料飛落動畫與冰山堆疊進度
+      state.fallingDrops.forEach(d => { d.progress = Math.min(1, d.progress + dt * d.speed); });
+      state.fallingDrops = state.fallingDrops.filter(d => d.progress < 1);
+
+      Object.values(state.bowlToppings).forEach(layers => {
+        layers.forEach(layer => {
+          if (layer.animProgress < 1) layer.animProgress = Math.min(1, layer.animProgress + dt * 2.5);
+        });
+      });
+
+      // 更新爆發粒子與浮動文字
+      state.burstParticles.forEach(p => {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 320 * dt; // 重力
+        p.life -= dt;
+        p.alpha = Math.max(0, p.life);
+      });
+      state.burstParticles = state.burstParticles.filter(p => p.life > 0);
+
+      state.floatingTexts.forEach(ft => {
+        ft.y += ft.vy * dt;
+        ft.alpha -= dt * 0.95;
+      });
+      state.floatingTexts = state.floatingTexts.filter(ft => ft.alpha > 0);
+
+      // 若正在播放單碗完成慶祝動畫
+      if (state.phase === 'BOWL_CELEBRATE') {
+        state.celebrateTimer -= dt;
+        if (state.celebrateTimer <= 0) {
+          state.currentBowlIndex++;
+          if (state.currentBowlIndex >= config.targetBowls) {
+            triggerSessionSummary();
+          } else {
+            state.currentStepIndex = 0;
+            setupNextStep(true);
+          }
+        }
+        return;
+      }
+
+      // 夜市急單計時器更新 (超時不失敗，僅轉為一般完成)
+      if (config.timedSeconds > 0 && state.phase === 'CARRYING') {
+        state.stepTimerElapsed += dt;
+      }
+
+      const zones = getZonesLayout(w, h);
+
+      // 檢查是否已離開鎖定區域 (防止手停在同一處重複觸發)
+      if (state.lockedZoneId) {
+        const lockedZone = zones.find(z => z.id === state.lockedZoneId);
+        if (!lockedZone || Math.hypot(px - lockedZone.x, py - lockedZone.y) > lockedZone.r * 1.15) {
+          state.lockedZoneId = null;
+        }
+      }
+
+      // 500ms 追蹤短暫斷線寬容期檢查
+      const now = performance.now();
+      const handRecentlyLost = state.usingCamera && (now - state.lastHandSeenTime > 120) && (now - state.lastHandSeenTime < 600);
+      if (handRecentlyLost) {
+        // 斷線 500ms 內凍結停留進度條，不歸零
+        return;
+      }
+
+      // 階段一：需要去備料區舀料
+      if (state.phase === 'NEED_SCOOP') {
+        const sourceZone = zones.find(z => z.role === 'source');
+        if (sourceZone && state.lockedZoneId !== 'source') {
+          const dist = Math.hypot(px - sourceZone.x, py - sourceZone.y);
+          if (dist <= sourceZone.r) {
+            state.carryingIngredient = getCurrentIngredient();
+            state.phase = 'CARRYING';
+            state.lockedZoneId = 'source';
+            state.dwellElapsed = 0;
+            sound.playScoop();
+            spawnSuccessParticles(sourceZone.x, sourceZone.y, state.carryingIngredient.badgeColor, 16);
+            spawnFloatingText(sourceZone.x, sourceZone.y - 40, `舀起 ${state.carryingIngredient.name}！`, '#FFE49E', 1.0);
+            updatePromptBanner();
+          }
+        }
+      }
+      // 階段二：已舀取配料，移往目標冰碗
+      else if (state.phase === 'CARRYING') {
+        const activeZone = zones.find(z => z.id === state.activeTargetId);
+        if (!activeZone) return;
+
+        // 1.25 倍遲滯緩衝半徑：進入需 <= 1.0R，但已在停留中可容許 <= 1.25R
+        const effectiveRadius = state.dwellElapsed > 0 ? activeZone.r * 1.25 : activeZone.r;
+        const distToTarget = Math.hypot(px - activeZone.x, py - activeZone.y);
+
+        if (distToTarget <= effectiveRadius && state.lockedZoneId !== activeZone.id) {
+          if (config.dwellSeconds <= 0) {
+            completeIngredientStep(activeZone);
+          } else {
+            state.dwellElapsed += dt;
+            if (state.dwellElapsed - state.lastDwellTickSound >= 0.22) {
+              state.lastDwellTickSound = state.dwellElapsed;
+              sound.playDwellTick(Math.min(1, state.dwellElapsed / config.dwellSeconds));
+            }
+            if (state.dwellElapsed >= config.dwellSeconds) {
+              completeIngredientStep(activeZone);
+            }
+          }
+        } else {
+          // 檢查口味配對模式下是否誤入其他非目標冰碗
+          if (config.colorMatchMode && config.spaceLevel >= 2) {
+            const wrongZone = zones.find(z => z.role === 'target' && z.id !== state.activeTargetId && Math.hypot(px - z.x, py - z.y) <= z.r * 0.9);
+            if (wrongZone && state.lockedZoneId !== wrongZone.id) {
+              state.lockedZoneId = wrongZone.id;
+              sound.playGentleHint();
+              spawnFloatingText(wrongZone.x, wrongZone.y - 30, '看湯匙顏色～送去另一碗喔！', '#FFD166', 0.95);
+            }
+          }
+          // 離開目標區時柔和遞減停留進度（而非瞬間歸零，對動作震顫長輩更友善）
+          state.dwellElapsed = Math.max(0, state.dwellElapsed - dt * 1.8);
+        }
+      }
+    }
+
+    function completeIngredientStep(targetZone) {
+      const ing = getCurrentIngredient();
+      state.lockedZoneId = targetZone.id;
+      state.dwellElapsed = 0;
+      state.totalActionsDone++;
+      state.comboCount++;
+
+      // 加入冰碗視覺層與飛落動畫
+      addToppingToBowl(targetZone, ing);
+      sound.playStepSuccess(ing.soundPitch);
+      spawnSuccessParticles(targetZone.x, targetZone.y, ing.badgeColor, 32);
+
+      // 檢查急單獎勵
+      const praises = ['好手藝！', '水喔！', '真澎湃！', '讚啦！', '古早味！'];
+      const praise = praises[state.totalActionsDone % praises.length];
+      if (config.timedSeconds > 0 && state.stepTimerElapsed <= config.timedSeconds) {
+        spawnFloatingText(targetZone.x, targetZone.y - 55, `⚡ 快手急單達成！${praise} Combo x${state.comboCount}`, '#4CD964', 1.15);
+      } else {
+        spawnFloatingText(targetZone.x, targetZone.y - 50, `✨ 加入${ing.name}！${praise}`, '#FFE28A', 1.08);
+      }
+
+      // 推進配料步驟
+      const recipe = getCurrentRecipe();
+      state.currentStepIndex++;
+
+      if (state.currentStepIndex >= recipe.steps.length) {
+        // 整碗剉冰完成！進入插小紙傘與蓋紅印章慶祝階段
+        state.phase = 'BOWL_CELEBRATE';
+        state.celebrateTimer = 2.1;
+        state.completedBowlsList.push(recipe.name);
+        sound.playBowlComplete();
+        spawnSuccessParticles(targetZone.x, targetZone.y - 20, '#FFD166', 55);
+        spawnFloatingText(targetZone.x, targetZone.y - 85, `🍧【${recipe.name}】完售上菜！`, '#FFF', 1.3);
+        updatePromptBanner();
+        updateHUD();
+      } else {
+        setupNextStep(false);
+      }
+    }
+
+    function triggerSessionSummary() {
+      state.inSummary = true;
+      const elapsedSec = Math.max(1, Math.round((performance.now() - state.sessionStartTime) / 1000));
+      const mins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+      const secs = String(elapsedSec % 60).padStart(2, '0');
+
+      document.getElementById('sum-bowls').textContent = `${state.completedBowlsList.length} 碗`;
+      document.getElementById('sum-actions').textContent = `${state.totalActionsDone} 次`;
+      document.getElementById('sum-time').textContent = `${mins}:${secs}`;
+
+      const showcase = document.getElementById('sum-showcase');
+      showcase.innerHTML = '';
+      state.completedBowlsList.forEach((name, idx) => {
+        const tag = document.createElement('span');
+        tag.className = 'showcase-tag';
+        tag.textContent = `🍧 第 ${idx + 1} 碗：${name}`;
+        showcase.appendChild(tag);
+      });
+
+      document.getElementById('summary-modal').classList.add('open');
+    }
+
+    /********************************************************************
+     * 七、高精細度 2D 懷舊冰果室美術與立體食材繪圖引擎
+     ********************************************************************/
+    function drawScene(w, h) {
+      ctx.clearRect(0, 0, w, h);
+
+      // 1. 繪製底層：即時攝影機畫面（AR 實景）或懷舊冰果室柔焦背景
+      if (state.usingCamera && videoElem.readyState >= 2) {
+        ctx.save();
+        if (config.mirrorCam) {
+          ctx.translate(w, 0);
+          ctx.scale(-1, 1);
+        }
+        // 等比例鋪滿畫面 (object-fit: cover)
+        const vw = videoElem.videoWidth || 640;
+        const vh = videoElem.videoHeight || 480;
+        const scale = Math.max(w / vw, h / vh);
+        const sw = vw * scale;
+        const sh = vh * scale;
+        ctx.drawImage(videoElem, (w - sw) / 2, (h - sh) / 2, sw, sh);
+        ctx.restore();
+      }
+
+      // 疊加溫暖復古冰果室護眼濾鏡與木質攤車框景
+      const bgGrad = ctx.createRadialGradient(w * 0.5, h * 0.5, minDim(w, h) * 0.15, w * 0.5, h * 0.5, Math.max(w, h) * 0.75);
+      const alpha = state.usingCamera ? config.arBgAlpha : 0.94;
+      bgGrad.addColorStop(0, `rgba(58, 36, 22, ${alpha * 0.85})`);
+      bgGrad.addColorStop(1, `rgba(28, 16, 10, ${Math.min(0.96, alpha + 0.18)})`);
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      drawRetroShopFrame(w, h);
+
+      const zones = getZonesLayout(w, h);
+      const sourceZone = zones.find(z => z.role === 'source');
+      const activeTargetZone = zones.find(z => z.id === state.activeTargetId);
+
+      // 2. 繪製動作引導虛線光軌（基礎模式下引導手部移動路徑）
+      if (state.phase === 'CARRYING' && sourceZone && activeTargetZone && !config.colorMatchMode) {
+        drawGuidingPath(sourceZone, activeTargetZone);
+      }
+
+      // 3. 繪製所有目標剉冰碗與碗內堆疊的立體配料
+      zones.filter(z => z.role === 'target').forEach(zone => {
+        drawShavedIceBowlZone(zone);
+      });
+
+      // 4. 繪製起點青花瓷備料盅
+      if (sourceZone) {
+        drawSourceBasinZone(sourceZone);
+      }
+
+      // 5. 繪製正在飛落冰碗中的動態食材粒子
+      state.fallingDrops.forEach(drop => {
+        const curX = drop.x + (drop.targetX - drop.x) * drop.progress;
+        const curY = drop.y + (drop.targetY - drop.y) * drop.progress - Math.sin(drop.progress * Math.PI) * 45;
+        drawSingleIngredientPiece(drop.ing, curX, curY, drop.size, drop.rot, 0);
+      });
+
+      // 6. 繪製爆發粒子與浮動讚美文字
+      state.burstParticles.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      state.floatingTexts.forEach(ft => {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, ft.alpha);
+        ctx.font = `900 ${Math.round(26 * ft.scale)}px "Noto Sans TC", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = 'rgba(30, 15, 8, 0.9)';
+        ctx.strokeText(ft.text, ft.x, ft.y);
+        ctx.fillStyle = ft.color;
+        ctx.fillText(ft.text, ft.x, ft.y);
+        ctx.restore();
+      });
+
+      // 7. 繪製最上層：手部湯匙游標與舀取的立體食材
+      drawSpoonCursor(w, h);
+    }
+
+    function minDim(w, h) {
+      return Math.min(w, h);
+    }
+
+    // 繪製台灣懷舊冰果室紅白帆布棚與底部檜木檯面邊緣
+    function drawRetroShopFrame(w, h) {
+      ctx.save();
+      // 底部檜木攤車邊緣
+      const woodH = 18;
+      const woodGrad = ctx.createLinearGradient(0, h - woodH, 0, h);
+      woodGrad.addColorStop(0, '#8C5832');
+      woodGrad.addColorStop(1, '#4A2B16');
+      ctx.fillStyle = woodGrad;
+      ctx.fillRect(0, h - woodH, w, woodH);
+      ctx.strokeStyle = '#E6C280';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, h - woodH);
+      ctx.lineTo(w, h - woodH);
+      ctx.stroke();
+
+      // 頂部懷舊紅白波浪帆布遮雨棚（極薄設計，不佔空間）
+      const stripeW = Math.max(48, w / 22);
+      const awningH = 12;
+      for (let x = 0, i = 0; x < w; x += stripeW, i++) {
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(217, 56, 41, 0.85)' : 'rgba(255, 248, 231, 0.85)';
+        ctx.beginPath();
+        ctx.rect(x, 0, stripeW, awningH);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawGuidingPath(fromZone, toZone) {
+      ctx.save();
+      const now = performance.now() * 0.004;
+      ctx.strokeStyle = 'rgba(255, 230, 140, 0.55)';
+      ctx.lineWidth = 8;
+      ctx.lineCap = 'round';
+      ctx.setLineDash([16, 18]);
+      ctx.lineDashOffset = -now * 28;
+      ctx.beginPath();
+      ctx.moveTo(fromZone.x, fromZone.y);
+      ctx.lineTo(toZone.x, toZone.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 繪製起點：台灣傳統青花瓷／木座備料大盅
+    function drawSourceBasinZone(zone) {
+      const { x, y, r } = zone;
+      const ing = getCurrentIngredient();
+      const isActive = state.phase === 'NEED_SCOOP';
+      const pulse = isActive ? 1 + Math.sin(performance.now() * 0.006) * 0.045 : 1;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(pulse, pulse);
+
+      // 外部高亮呼吸光圈
+      if (isActive) {
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.12, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 212, 121, 0.22)';
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#FFD479';
+        ctx.stroke();
+      }
+
+      // 檜木底座托盤
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      const woodGrad = ctx.createRadialGradient(-r * 0.2, -r * 0.2, r * 0.1, 0, 0, r);
+      woodGrad.addColorStop(0, '#7D4E2D');
+      woodGrad.addColorStop(1, '#3B2212');
+      ctx.fillStyle = woodGrad;
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = isActive ? '#FFE28A' : 'rgba(230, 194, 128, 0.6)';
+      ctx.stroke();
+
+      // 陶瓷內缽
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.82, 0, Math.PI * 2);
+      const bowlGrad = ctx.createRadialGradient(-r * 0.2, -r * 0.2, r * 0.1, 0, 0, r * 0.82);
+      bowlGrad.addColorStop(0, '#FFFDF9');
+      bowlGrad.addColorStop(1, '#E2D9C8');
+      ctx.fillStyle = bowlGrad;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#3B6E8C'; // 青花藍邊線
+      ctx.stroke();
+
+      // 缽內滿滿的待舀取當步食材
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.72, 0, Math.PI * 2);
+      ctx.fillStyle = ing.shadow;
+      ctx.fill();
+
+      // 繪製缽內立體食材細節
+      const samplePositions = [
+        [0, 0], [-0.32, -0.22], [0.32, -0.22], [-0.35, 0.24], [0.35, 0.24],
+        [0, -0.38], [0, 0.38], [-0.2, 0.05], [0.22, 0.05]
+      ];
+      samplePositions.forEach(([nx, ny], idx) => {
+        drawSingleIngredientPiece(ing, nx * r, ny * r, r * 0.22, idx * 0.7, idx % 2);
+      });
+
+      // 底部食材名稱銘牌
+      ctx.fillStyle = 'rgba(28, 16, 10, 0.9)';
+      roundRect(ctx, -r * 0.78, r * 0.62, r * 1.56, 32, 16);
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#FFD479';
+      ctx.stroke();
+
+      ctx.font = '900 16px "Noto Sans TC", sans-serif';
+      ctx.fillStyle = '#FFF8E7';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`🥄 舀：${ing.name}`, 0, r * 0.62 + 16);
+
+      ctx.restore();
+    }
+
+    // 繪製目標區：台灣古早味彩繪刨冰大碗＋晶瑩刨冰山＋已堆疊配料層＋停留進度環
+    function drawShavedIceBowlZone(zone) {
+      const { x, y, r, id } = zone;
+      const isTarget = (state.phase === 'CARRYING' && state.activeTargetId === id) || state.phase === 'BOWL_CELEBRATE';
+      const showHighlight = isTarget && (!config.colorMatchMode || config.spaceLevel === 1 || state.dwellElapsed > 0);
+      const pulse = showHighlight ? 1 + Math.sin(performance.now() * 0.007) * 0.035 : 1;
+      const currentIng = getCurrentIngredient();
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(pulse, pulse);
+
+      // 1. 高對比底盤（確保在任何居家實景背景上都清晰分明）
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 1.06, 0, Math.PI * 2);
+      ctx.fillStyle = showHighlight ? 'rgba(255, 220, 120, 0.24)' : 'rgba(20, 12, 8, 0.65)';
+      ctx.fill();
+
+      // 口味配對模式下，各冰碗外框顯示食材對應顏色招牌環
+      let ringColor = zone.themeColor || '#FFD479';
+      if (config.colorMatchMode && config.spaceLevel >= 2 && state.phase === 'CARRYING') {
+        if (id === state.activeTargetId) {
+          ringColor = currentIng.badgeColor;
+        } else {
+          // 非目標碗顯示對比色
+          ringColor = id === 'left' ? '#3B82F6' : (id === 'right' ? '#10B981' : '#A855F7');
+          if (ringColor === currentIng.badgeColor) ringColor = '#64748B';
+        }
+      } else if (showHighlight) {
+        ringColor = '#FFE28A';
+      }
+
+      ctx.lineWidth = showHighlight ? 5 : 3;
+      ctx.strokeStyle = ringColor;
+      ctx.stroke();
+
+      // 2. 繪製古早味陶瓷大冰碗下半部（紅藍雙線懷舊碗身）
+      ctx.beginPath();
+      ctx.arc(0, r * 0.08, r * 0.86, 0, Math.PI, false);
+      const ceramicGrad = ctx.createLinearGradient(0, 0, 0, r * 0.95);
+      ceramicGrad.addColorStop(0, '#FFFFFF');
+      ceramicGrad.addColorStop(0.7, '#F0ECE1');
+      ceramicGrad.addColorStop(1, '#C7B9A5');
+      ctx.fillStyle = ceramicGrad;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#8C7A6B';
+      ctx.stroke();
+
+      // 懷舊碗身紅線條紋
+      ctx.beginPath();
+      ctx.arc(0, r * 0.08, r * 0.76, 0.12 * Math.PI, 0.88 * Math.PI, false);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#D93829';
+      ctx.stroke();
+
+      // 3. 繪製蓬鬆晶瑩的刨冰山主體
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.82, r * 0.08);
+      ctx.quadraticCurveTo(-r * 0.68, -r * 0.82, 0, -r * 0.88);
+      ctx.quadraticCurveTo(r * 0.68, -r * 0.82, r * 0.82, r * 0.08);
+      ctx.closePath();
+
+      const iceGrad = ctx.createRadialGradient(-r * 0.18, -r * 0.45, r * 0.08, 0, -r * 0.2, r * 0.95);
+      iceGrad.addColorStop(0, '#FFFFFF');
+      iceGrad.addColorStop(0.65, '#F2F9FF');
+      iceGrad.addColorStop(1, '#CFE5F7');
+      ctx.fillStyle = iceGrad;
+      ctx.fill();
+
+      // 裁切刨冰山內部，繪製碎冰晶體質感
+      ctx.clip();
+      ICE_CRYSTAL_OFFSETS.forEach(c => {
+        ctx.fillStyle = c.shade > 0.5 ? 'rgba(255,255,255,0.85)' : 'rgba(186, 220, 245, 0.45)';
+        ctx.beginPath();
+        ctx.arc(c.rx * r * 0.55, c.ry * r * 0.82, c.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 4. 繪製已加入此冰碗的所有配料層（包含流體煉乳/糖漿、顆粒豆類、Q彈果肉）
+      const layers = state.bowlToppings[id] || [];
+      layers.forEach((layer, layerIdx) => {
+        const ing = layer.ing;
+        const prog = layer.animProgress;
+
+        if (ing.type === 'syrup') {
+          // 繪製順著刨冰山流下的絲滑煉乳／黑糖漿／果醬曲線
+          drawSyrupDrizzleOnIce(r, ing, prog, layerIdx);
+        } else if (ing.type === 'powder') {
+          // 繪製鹿港麵茶粉細緻覆蓋層
+          ctx.fillStyle = ing.color;
+          ctx.globalAlpha = 0.85 * prog;
+          ctx.beginPath();
+          ctx.ellipse(0, -r * 0.42, r * 0.58 * prog, r * 0.32 * prog, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+
+        // 繪製立體顆粒／切塊配料
+        layer.items.forEach(item => {
+          if (ing.type === 'syrup' && !ing.hasSeeds) return;
+          const ix = item.rx * r * 0.58;
+          const iy = item.ry * r * 0.85;
+          const scale = prog;
+          drawSingleIngredientPiece(ing, ix, iy, item.size * r * scale, item.rot, item.variant);
+        });
+      });
+      ctx.restore();
+
+      // 5. 若此碗剛完成（第 3 道配料完成），插上復古小紙傘、脆笛酥、櫻桃與「完售」紅印章！
+      if (state.phase === 'BOWL_CELEBRATE' && id === state.activeTargetId) {
+        drawCompletedBowlGarnish(r, getCurrentRecipe());
+      }
+
+      // 6. 繪製停留蓄力進度環（Dwell Progress Ring）
+      if (state.phase === 'CARRYING' && id === state.activeTargetId && state.dwellElapsed > 0 && config.dwellSeconds > 0) {
+        const ratio = Math.min(1, state.dwellElapsed / config.dwellSeconds);
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.06, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+        ctx.lineWidth = 12;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#4CD964';
+        ctx.stroke();
+      }
+
+      // 7. 繪製夜市急單黃金計時條（若開啟限時反應挑戰）
+      if (config.timedSeconds > 0 && state.phase === 'CARRYING' && id === state.activeTargetId) {
+        const remainRatio = Math.max(0, 1 - state.stepTimerElapsed / config.timedSeconds);
+        if (remainRatio > 0) {
+          const barW = r * 1.3;
+          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+          roundRect(ctx, -barW / 2, -r * 1.15, barW, 12, 6);
+          ctx.fill();
+          ctx.fillStyle = remainRatio > 0.35 ? '#FFD166' : '#FF595E';
+          roundRect(ctx, -barW / 2, -r * 1.15, barW * remainRatio, 12, 6);
+          ctx.fill();
+        }
+      }
+
+      // 8. 底部冰碗名稱或配對提示標籤
+      ctx.fillStyle = 'rgba(28, 16, 10, 0.88)';
+      roundRect(ctx, -r * 0.72, r * 0.65, r * 1.44, 30, 15);
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = ringColor;
+      ctx.stroke();
+
+      ctx.font = '900 15px "Noto Sans TC", sans-serif';
+      ctx.fillStyle = '#FFF8E7';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const labelText = (config.colorMatchMode && config.spaceLevel >= 2 && id === state.activeTargetId)
+        ? `🎯 放：${currentIng.name}`
+        : zone.label;
+      ctx.fillText(labelText, 0, r * 0.65 + 15);
+
+      ctx.restore();
+    }
+
+    // 繪製順著刨冰山自然垂墜流動的煉乳／黑糖蜜／草莓醬／抹茶蜜
+    function drawSyrupDrizzleOnIce(r, ing, prog, layerIdx) {
+      ctx.save();
+      ctx.fillStyle = ing.color;
+      ctx.globalAlpha = 0.92;
+      const topY = -r * 0.78;
+      const spreadW = r * 0.68 * prog;
+      const dripDepth = r * (0.35 + 0.28 * prog);
+
+      ctx.beginPath();
+      ctx.moveTo(-spreadW, topY + r * 0.32);
+      ctx.quadraticCurveTo(0, topY - r * 0.12, spreadW, topY + r * 0.32);
+
+      // 產生 5 道自然垂墜的糖漿水滴波浪
+      const waves = 5;
+      const stepW = (spreadW * 2) / waves;
+      for (let i = waves; i >= 1; i--) {
+        const xEnd = -spreadW + (i - 1) * stepW;
+        const xMid = xEnd + stepW * 0.5;
+        const extraDrop = ((i + layerIdx) % 2 === 0 ? 1.25 : 0.75) * dripDepth;
+        ctx.quadraticCurveTo(xMid, topY + r * 0.25 + extraDrop, xEnd, topY + r * 0.32);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // 煉乳與果醬表面立體光澤高光線
+      ctx.strokeStyle = ing.highlight;
+      ctx.lineWidth = 3 * prog;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, topY + r * 0.22, spreadW * 0.55, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 繪製單一顆立體食材（具高光、陰影、導角切面或果籽細節）
+    function drawSingleIngredientPiece(ing, x, y, size, rot, variant = 0) {
+      if (size <= 0.5) return;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rot);
+
+      // 底部微陰影增強立體感
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+      ctx.beginPath();
+      ctx.ellipse(1, 2.5, size * 0.95, size * 0.75, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (ing.type === 'beans') {
+        // 紅豆、綠豆、軟花生：飽滿橢圓豆體＋月牙白高光
+        ctx.fillStyle = ing.color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, size * 1.05, size * 0.75, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = ing.highlight;
+        ctx.beginPath();
+        ctx.ellipse(-size * 0.28, -size * 0.22, size * 0.35, size * 0.18, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (ing.type === 'boba') {
+        // 黑糖波霸粉圓：深邃黑亮圓球＋強烈玻璃反光點
+        const grad = ctx.createRadialGradient(-size * 0.3, -size * 0.3, size * 0.1, 0, 0, size);
+        grad.addColorStop(0, ing.highlight);
+        grad.addColorStop(0.5, ing.color);
+        grad.addColorStop(1, ing.shadow);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(-size * 0.3, -size * 0.3, size * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (ing.type === 'balls') {
+        // 雙色芋圓／地瓜圓、紅白小湯圓
+        const mainCol = (variant === 1 && ing.secondaryColor) ? ing.secondaryColor : ing.color;
+        ctx.fillStyle = mainCol;
+        roundRect(ctx, -size * 0.9, -size * 0.75, size * 1.8, size * 1.5, size * 0.55);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath();
+        ctx.ellipse(-size * 0.25, -size * 0.25, size * 0.35, size * 0.18, -0.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (ing.type === 'chunks' || ing.type === 'jelly_cubes') {
+        // 愛文芒果塊、黃粉粿、嫩仙草、野生愛玉：立體方塊切面＋晶瑩高光邊
+        ctx.fillStyle = ing.color;
+        roundRect(ctx, -size, -size * 0.85, size * 2, size * 1.7, size * 0.35);
+        ctx.fill();
+        ctx.fillStyle = ing.highlight;
+        roundRect(ctx, -size * 0.75, -size * 0.65, size * 1.1, size * 0.45, size * 0.2);
+        ctx.fill();
+      } else if (ing.type === 'strawberry') {
+        // 大湖鮮草莓：愛心錐形果實＋表面細籽
+        ctx.fillStyle = ing.color;
+        ctx.beginPath();
+        ctx.moveTo(0, size);
+        ctx.bezierCurveTo(-size * 1.2, size * 0.2, -size * 0.9, -size, 0, -size * 0.6);
+        ctx.bezierCurveTo(size * 0.9, -size, size * 1.2, size * 0.2, 0, size);
+        ctx.fill();
+        ctx.fillStyle = '#FFE066';
+        [[-0.3, -0.2], [0.3, -0.2], [0, 0.25], [-0.25, 0.35], [0.25, 0.35]].forEach(([sx, sy]) => {
+          ctx.beginPath();
+          ctx.arc(sx * size, sy * size, size * 0.1, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      } else if (ing.hasSeeds) {
+        // 百香果黑籽與金黃果肉
+        ctx.fillStyle = ing.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.85, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2B1810';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, size * 0.45, size * 0.28, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // 糖漿水珠
+        ctx.fillStyle = ing.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.75, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    // 單碗完成時的裝飾：復古小紙傘、脆笛酥、紅櫻桃與「特級完售」紅印章
+    function drawCompletedBowlGarnish(r, recipe) {
+      ctx.save();
+
+      // 1. 脆笛酥捲心酥斜插
+      ctx.save();
+      ctx.translate(-r * 0.35, -r * 0.78);
+      ctx.rotate(-0.42);
+      ctx.fillStyle = '#E6B88A';
+      roundRect(ctx, -7, -r * 0.45, 14, r * 0.75, 5);
+      ctx.fill();
+      ctx.strokeStyle = '#6B3E26';
+      ctx.lineWidth = 3;
+      for (let y = -r * 0.35; y < r * 0.2; y += 12) {
+        ctx.beginPath();
+        ctx.moveTo(-6, y);
+        ctx.lineTo(6, y + 7);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 2. 懷舊繽紛小紙傘
+      ctx.save();
+      ctx.translate(r * 0.32, -r * 0.82);
+      ctx.rotate(0.35);
+      ctx.strokeStyle = '#D4A373';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.45);
+      ctx.lineTo(0, r * 0.25);
+      ctx.stroke();
+
+      ctx.fillStyle = recipe.umbrellaColor || '#FF595E';
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.42, -r * 0.18);
+      ctx.quadraticCurveTo(0, -r * 0.65, r * 0.42, -r * 0.18);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#FFF';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+
+      // 3. 頂端晶瑩紅櫻桃
+      ctx.fillStyle = recipe.cherryColor || '#E63946';
+      ctx.beginPath();
+      ctx.arc(0, -r * 0.88, r * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FFF';
+      ctx.beginPath();
+      ctx.arc(-r * 0.05, -r * 0.92, r * 0.045, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 4. 復古紅色印章「特級完售」蓋印動畫
+      ctx.save();
+      ctx.rotate(-0.18);
+      ctx.fillStyle = 'rgba(217, 40, 28, 0.92)';
+      roundRect(ctx, -r * 0.55, -r * 0.22, r * 1.1, r * 0.44, 10);
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#FFF8E7';
+      ctx.stroke();
+
+      ctx.font = `900 ${Math.round(r * 0.25)}px "Noto Sans TC", sans-serif`;
+      ctx.fillStyle = '#FFF8E7';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🍧 招牌完售！', 0, 0);
+      ctx.restore();
+
+      ctx.restore();
+    }
+
+    // 繪製手部追蹤游標：復古不鏽鋼大湯匙／木柄杓＋流體軌跡＋湯匙內滿滿的食材
+    function drawSpoonCursor(w, h) {
+      const px = state.cursorX * w;
+      const py = state.cursorY * h;
+
+      // 繪製湯匙移動流體光軌
+      if (state.spoonTrail.length > 1) {
+        const trailColor = state.carryingIngredient ? state.carryingIngredient.badgeColor : '#FFE28A';
+        for (let i = 1; i < state.spoonTrail.length; i++) {
+          const pt = state.spoonTrail[i];
+          const prev = state.spoonTrail[i - 1];
+          ctx.save();
+          ctx.strokeStyle = trailColor;
+          ctx.globalAlpha = Math.max(0, pt.alpha * 0.55);
+          ctx.lineWidth = (i / state.spoonTrail.length) * 18;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(prev.x, prev.y);
+          ctx.lineTo(pt.x, pt.y);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      ctx.save();
+      ctx.translate(px, py);
+
+      // 湯匙外圍柔和感應光圈（讓長輩清楚看到目前手部感應點）
+      ctx.beginPath();
+      ctx.arc(0, 0, 44, 0, Math.PI * 2);
+      ctx.fillStyle = state.carryingIngredient ? 'rgba(255, 212, 121, 0.28)' : 'rgba(255, 255, 255, 0.18)';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = state.carryingIngredient ? '#FFD166' : 'rgba(255, 255, 255, 0.75)';
+      ctx.stroke();
+
+      // 繪製木柄大湯匙柄部
+      ctx.save();
+      ctx.rotate(0.65);
+      const handleGrad = ctx.createLinearGradient(15, 0, 88, 0);
+      handleGrad.addColorStop(0, '#D4A373');
+      handleGrad.addColorStop(1, '#7D4E2D');
+      ctx.fillStyle = handleGrad;
+      roundRect(ctx, 18, -9, 72, 18, 9);
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#3B2212';
+      ctx.stroke();
+
+      // 不鏽鋼／搪瓷湯匙杓面
+      const bowlGrad = ctx.createRadialGradient(-6, -6, 4, 0, 0, 32);
+      bowlGrad.addColorStop(0, '#FFFFFF');
+      bowlGrad.addColorStop(0.75, '#E2E8F0');
+      bowlGrad.addColorStop(1, '#94A3B8');
+      ctx.fillStyle = bowlGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 32, 26, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#475569';
+      ctx.stroke();
+      ctx.restore();
+
+      // 若湯匙上正裝著配料，繪製湯匙內的立體食材與標籤
+      if (state.carryingIngredient) {
+        const ing = state.carryingIngredient;
+        ctx.beginPath();
+        ctx.arc(0, 0, 21, 0, Math.PI * 2);
+        ctx.fillStyle = ing.color;
+        ctx.fill();
+
+        const offsets = [[-7, -5], [8, -4], [0, 6], [-6, 5], [7, 6]];
+        offsets.forEach(([ox, oy], idx) => {
+          drawSingleIngredientPiece(ing, ox, oy, 9.5, idx * 0.8, idx % 2);
+        });
+
+        // 湯匙上方跟隨的迷你食材名牌
+        ctx.fillStyle = 'rgba(28, 16, 10, 0.92)';
+        roundRect(ctx, -56, -56, 112, 26, 13);
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = ing.badgeColor;
+        ctx.stroke();
+
+        ctx.font = '900 14px "Noto Sans TC", sans-serif';
+        ctx.fillStyle = '#FFE49E';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(ing.name, 0, -43);
+      }
+
+      ctx.restore();
+    }
+
+    function roundRect(context, x, y, width, height, radius) {
+      context.beginPath();
+      context.moveTo(x + radius, y);
+      context.lineTo(x + width - radius, y);
+      context.quadraticCurveTo(x + width, y, x + width, y + radius);
+      context.lineTo(x + width, y + height - radius);
+      context.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      context.lineTo(x + radius, y + height);
+      context.quadraticCurveTo(x, y + height, x, y + height - radius);
+      context.lineTo(x, y + radius);
+      context.quadraticCurveTo(x, y, x + radius, y);
+      context.closePath();
+    }
+
+    /********************************************************************
+     * 八、MediaPipe Hands 攝影機追蹤與滑鼠／觸控雙模式無縫整合
+     ********************************************************************/
+    function setupHandTracking() {
+      const statusDot = document.getElementById('status-dot');
+      const trackingText = document.getElementById('tracking-text');
+
+      if (typeof Hands === 'undefined' || typeof Camera === 'undefined') {
+        trackingText.textContent = '滑鼠／觸控模式（未載入外部鏡頭套件，可直接移動游標遊玩）';
+        return;
+      }
+
+      const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6
+      });
+
+      hands.onResults((results) => {
+        if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+          const lostMs = performance.now() - state.lastHandSeenTime;
+          if (state.usingCamera && lostMs > 600) {
+            statusDot.className = 'status-dot warn';
+            trackingText.textContent = '鏡頭搜尋手部中…（亦可直接移動滑鼠或觸控）';
+          }
+          return;
+        }
+
+        // 篩選符合治療師指定手別的追蹤結果
+        let chosenIndex = -1;
+        for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+          const handedness = results.multiHandedness?.[i]?.label || 'Right';
+          if (config.handPref === 'ANY' || handedness === config.handPref) {
+            chosenIndex = i;
+            state.detectedHandLabel = handedness === 'Left' ? '左手' : '右手';
+            break;
+          }
+        }
+
+        if (chosenIndex === -1) return;
+
+        const lm = results.multiHandLandmarks[chosenIndex];
+        // 取手腕 (0) 與中指掌指關節 (9) 的中心點，完全不要求手指張開或精細動作
+        const palmX = (lm[0].x + lm[9].x) * 0.5;
+        const palmY = (lm[0].y + lm[9].y) * 0.5;
+
+        state.targetCursorX = config.mirrorCam ? (1 - palmX) : palmX;
+        state.targetCursorY = palmY;
+        state.lastHandSeenTime = performance.now();
+        state.usingCamera = true;
+
+        statusDot.className = 'status-dot';
+        trackingText.textContent = `📷 鏡頭穩定追蹤中（${state.detectedHandLabel}掌心）`;
+      });
+
+      const camera = new Camera(videoElem, {
+        onFrame: async () => {
+          if (!state.paused) {
+            await hands.send({ image: videoElem });
+          }
+        },
+        width: 640,
+        height: 480
+      });
+
+      camera.start().catch(() => {
+        statusDot.className = 'status-dot mouse';
+        trackingText.textContent = '未授權攝影機，已自動啟用【滑鼠／觸控測試模式】';
+      });
+    }
+
+    // 滑鼠與平板觸控即時支援（隨時移動滑鼠即可測試所有功能）
+    window.addEventListener('pointermove', (e) => {
+      if (state.paused || state.inSummary) return;
+      const now = performance.now();
+      // 若超過 500ms 沒偵測到鏡頭手部，自動由滑鼠/觸控接手游標
+      if (!state.usingCamera || (now - state.lastHandSeenTime > 500)) {
+        state.targetCursorX = e.clientX / window.innerWidth;
+        state.targetCursorY = e.clientY / window.innerHeight;
+      }
+    });
+
+    /********************************************************************
+     * 九、設定面板事件綁定與自適應螢幕縮放
+     ********************************************************************/
+    function bindOptionGroup(groupId, onSelect) {
+      const container = document.getElementById(groupId);
+      if (!container) return;
+      const buttons = container.querySelectorAll('.opt-btn');
+      buttons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          buttons.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          onSelect(btn.dataset.val);
+        });
+      });
+    }
+
+    function initSettingsUI() {
+      const modal = document.getElementById('settings-modal');
+      const subL1 = document.getElementById('sub-level1-dir');
+      const subMulti = document.getElementById('sub-multi-seq');
+
+      document.getElementById('btn-settings').addEventListener('click', () => {
+        state.paused = true;
+        modal.classList.add('open');
+      });
+
+      const closeSettings = () => {
+        modal.classList.remove('open');
+        state.paused = false;
+        setupNextStep(false);
+      };
+
+      document.getElementById('btn-close-settings').addEventListener('click', closeSettings);
+      document.getElementById('btn-apply-settings').addEventListener('click', closeSettings);
+
+      document.getElementById('btn-restart-session').addEventListener('click', () => {
+        modal.classList.remove('open');
+        state.paused = false;
+        initSession();
+      });
+
+      // 空間動作分級 (1~4級)
+      bindOptionGroup('grp-space-level', (val) => {
+        config.spaceLevel = parseInt(val, 10);
+        subL1.style.display = config.spaceLevel === 1 ? 'block' : 'none';
+        subMulti.style.display = config.spaceLevel >= 2 ? 'block' : 'none';
+      });
+
+      bindOptionGroup('grp-l1-dir', (val) => { config.level1Dir = val; });
+      bindOptionGroup('grp-seq-mode', (val) => { config.seqMode = val; });
+      bindOptionGroup('grp-dwell-time', (val) => { config.dwellSeconds = parseFloat(val); });
+      bindOptionGroup('grp-require-return', (val) => { config.requireReturn = (val === 'true'); });
+      bindOptionGroup('grp-color-match', (val) => { config.colorMatchMode = (val === 'true'); });
+      bindOptionGroup('grp-timed-mode', (val) => { config.timedSeconds = parseFloat(val); });
+      bindOptionGroup('grp-zone-size', (val) => { config.zoneSizeScale = parseFloat(val); });
+      bindOptionGroup('grp-move-dist', (val) => { config.moveDistScale = parseFloat(val); });
+      bindOptionGroup('grp-target-bowls', (val) => {
+        config.targetBowls = parseInt(val, 10);
+        initSession();
+      });
+      bindOptionGroup('grp-hand-pref', (val) => { config.handPref = val; });
+      bindOptionGroup('grp-ar-alpha', (val) => { config.arBgAlpha = parseFloat(val); });
+
+      // 音效與鏡像切換
+      const btnSound = document.getElementById('btn-toggle-sound');
+      btnSound.addEventListener('click', () => {
+        sound.enabled = !sound.enabled;
+        btnSound.classList.toggle('active', sound.enabled);
+        btnSound.textContent = sound.enabled ? '🔊 音效：開啟' : '🔇 音效：關閉';
+      });
+
+      const btnMirror = document.getElementById('btn-toggle-mirror');
+      btnMirror.addEventListener('click', () => {
+        config.mirrorCam = !config.mirrorCam;
+        btnMirror.classList.toggle('active', config.mirrorCam);
+        btnMirror.textContent = config.mirrorCam ? '🪞 鏡像：開啟' : '🪞 鏡像：關閉';
+      });
+
+      // 全螢幕按鈕
+      document.getElementById('btn-fullscreen').addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+      });
+
+      // 結算視窗按鈕
+      document.getElementById('btn-sum-again').addEventListener('click', () => {
+        initSession();
+      });
+      document.getElementById('btn-sum-settings').addEventListener('click', () => {
+        document.getElementById('summary-modal').classList.remove('open');
+        state.inSummary = false;
+        state.paused = true;
+        modal.classList.add('open');
+      });
+    }
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+
+    // 啟動遊戲主迴圈
+    let lastFrameTime = performance.now();
+    function mainLoop(now) {
+      const dt = Math.min(0.05, (now - lastFrameTime) / 1000);
+      lastFrameTime = now;
+
+      updateGameLogic(dt, canvas.width, canvas.height);
+      drawScene(canvas.width, canvas.height);
+
+      requestAnimationFrame(mainLoop);
+    }
+
+    // 初始化執行
+    resizeCanvas();
+    initSettingsUI();
+    initSession();
+    setupHandTracking();
+    requestAnimationFrame(mainLoop);
+  </script>
+</body>
+</html>

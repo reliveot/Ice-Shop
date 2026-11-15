@@ -832,6 +832,9 @@
 .ing-step-pill.done { background: #E9E2D6; border-color: #D7C8B5; color: #735B44; }
 .ing-step-pill.active { background: #E8C69A; border: 1px solid #B87A42; color: #59371E; box-shadow: none; }
 #hud-action-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   color: #603D28;
   background: #F0E1CB;
   border-left: 3px solid #BA7844;
@@ -840,6 +843,12 @@
   font-weight: 800;
   font-size: clamp(12px, 3.3vw, 16px);
   line-height: 1.3;
+}
+#hud-action-line img.hud-mini-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 .circle-icon-btn {
   width: 40px; height: 40px; border: 1.5px solid #A88463;
@@ -1945,7 +1954,10 @@
 
       if (basinIds.length > 1) {
         if (config.colorMatchMode) {
-          chosenId = basinIds[Math.floor(Math.random() * basinIds.length)];
+          // 認知模式每一步重新洗牌所有配料盆，且強制目標配料切換到與上一步不同的方位，避免連續同一方向
+          const otherBasins = basinIds.filter(id => id !== state.activeBasinZoneId);
+          const candidatePool = otherBasins.length > 0 ? otherBasins : basinIds;
+          chosenId = candidatePool[Math.floor(Math.random() * candidatePool.length)];
         } else if (config.seqMode === 'FIXED_L' && basinIds.includes('left')) {
           chosenId = 'left';
         } else if (config.seqMode === 'FIXED_R' && basinIds.includes('right')) {
@@ -1964,14 +1976,22 @@
       if (!config.colorMatchMode || config.spaceLevel === 1) {
         state.basinMap[chosenId] = targetIng;
       } else {
+        const prevMap = { ...state.basinMap };
+        state.basinMap = {};
         state.basinMap[chosenId] = targetIng;
         const distractors = shuffleArray(
-          ALL_INGREDIENT_IDS.filter(id => id !== targetIng.id && INGREDIENTS[id].badgeColor !== targetIng.badgeColor)
+          ALL_INGREDIENT_IDS.filter(id => id !== targetIng.id)
         );
         let dIdx = 0;
         basinIds.forEach(id => {
           if (id !== chosenId) {
-            state.basinMap[id] = INGREDIENTS[distractors[dIdx % distractors.length]];
+            let pickId = distractors[dIdx % distractors.length];
+            // 盡量讓每個方位的干擾配料也換成跟上一輪不同的食材，確保整場配料盆全面刷新
+            if (prevMap[id] && prevMap[id].id === pickId && distractors.length > basinIds.length) {
+              dIdx++;
+              pickId = distractors[dIdx % distractors.length];
+            }
+            state.basinMap[id] = INGREDIENTS[pickId];
             dIdx++;
           }
         });
@@ -1990,17 +2010,17 @@
 
     function updateHUD() {
       const recipe = getCurrentRecipe();
-      document.getElementById('hud-recipe-name').textContent = `🍧 ${recipe.name}`;
+      document.getElementById('hud-recipe-name').textContent = `🥣 ${recipe.name}`;
       document.getElementById('hud-bowl-text').textContent = `第 ${Math.min(state.currentBowlIndex + 1, config.targetBowls)} / ${config.targetBowls} 碗`;
 
       const actionLine = document.getElementById('hud-action-line');
       const currentIng = getCurrentIngredient();
       if (state.phase === 'BOWL_CELEBRATE') {
-        actionLine.textContent = `${recipe.name}完成！成功上菜！`;
+        actionLine.innerHTML = `<img class="hud-mini-icon" src="./images/${recipe.finishedImg}" onerror="this.style.display='none'" alt=""><span>${recipe.name}完成！成功上菜！</span>`;
       } else if (state.phase === 'GO_POUR') {
-        actionLine.textContent = '回到冰碗，加入配料';
+        actionLine.innerHTML = `<img class="hud-mini-icon" src="./images/bowl-empty.png" onerror="this.style.display='none'" alt=""><span>回到冰碗，加入配料</span>`;
       } else {
-        actionLine.textContent = `去挖：${currentIng.name}`;
+        actionLine.innerHTML = `<img class="hud-mini-icon" src="./images/spoon.png" onerror="this.style.display='none'" alt=""><span>去挖：${currentIng.name}</span>`;
       }
       const pillsContainer = document.getElementById('hud-step-pills');
       pillsContainer.innerHTML = '';
@@ -2293,7 +2313,7 @@
       state.completedBowlsList.forEach((name, idx) => {
         const tag = document.createElement('span');
         tag.className = 'showcase-tag';
-        tag.textContent = `🍧 第 ${idx + 1} 碗：${name}`;
+        tag.textContent = `🥣 第 ${idx + 1} 碗：${name}`;
         showcase.appendChild(tag);
       });
 
@@ -3048,7 +3068,7 @@
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(
-          hasFood ? '回到冰碗，加入配料' : `去挖：${ing.name}`,
+          hasFood ? '🥣 回到冰碗，加入配料' : `🥄 去挖：${ing.name}`,
           0,
           tagY
         );
